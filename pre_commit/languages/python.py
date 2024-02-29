@@ -2,10 +2,16 @@ from __future__ import annotations
 
 import contextlib
 import functools
+import logging
 import os
 import sys
+import tempfile
 from collections.abc import Generator
 from collections.abc import Sequence
+from pathlib import Path
+
+import tomlkit
+from tomlkit import TOMLDocument
 
 import pre_commit.constants as C
 from pre_commit import lang_base
@@ -22,6 +28,8 @@ from pre_commit.util import win_exe
 
 ENVIRONMENT_DIR = 'py_env'
 run_hook = lang_base.basic_run_hook
+
+logger = logging.getLogger('pre_commit')
 
 
 @functools.cache
@@ -207,8 +215,81 @@ def install_environment(
     python = norm_version(version)
     if python is not None:
         venv_cmd.extend(('-p', python))
-    install_cmd = ('python', '-mpip', 'install', '.', *additional_dependencies)
 
     cmd_output_b(*venv_cmd, cwd='/')
     with in_env(prefix, version):
-        lang_base.setup_cmd(prefix, install_cmd)
+        name = None
+        proj_file = prefix.path() / Path('pyproject.toml')
+        if proj_file.exists():
+            with open(proj_file) as fd:
+                parsed = tomlkit.parse(fd.read())
+
+                def try_navigate(*coords: str) -> TOMLDocument | None:
+                    curr = parsed
+                    for coord in coords:
+                        if coord not in curr:
+                            return None
+                        curr = curr[coord]
+                    return curr
+
+                name = try_navigate('tool', 'poetry', 'name')
+
+                if name is None:
+                    name = try_navigate('project', 'name')
+        if name is None:
+            setup = prefix.prefix_dir / Path('setup.py')
+            if setup.exists():
+                with tempfile.TemporaryDirectory() as td:
+                    try:
+                        lang_base.setup_cmd(
+                            prefix,
+                            ('uv', 'pip', 'install', 'setuptools'),
+                        )
+                        lang_base.setup_cmd(
+                            prefix,
+                            (
+                                'python',
+                                'setup.py',
+                                'egg_info',
+                                '-e',
+                                f'{td}',
+                            ),
+                        )
+                        candidates = list(Path(td).glob('*.egg-info'))
+                        if len(candidates) == 1:
+                            name = candidates[0].name[
+                                : (-len('.egg-info'))
+                            ]
+
+                    except CalledProcessError as cpe:
+                        logger.warning(f'Failed uv setuptools setup: {cpe}')
+                        pass  # fallback
+
+        if name is not None:
+            logger.info(f'Found package name: \"{name}\".')
+            uv_cmd = (
+                'uv',
+                'pip',
+                'install',
+                f'{name} @ .',
+                *additional_dependencies,
+            )
+            try:
+                lang_base.setup_cmd(prefix, uv_cmd)
+                return
+            except CalledProcessError as cpe:
+                logger.warning(f'uv-based setup failed: {cpe}')
+                pass  # fallback
+        else:
+            logger.warning('Failed to find name for uv setup.')
+        logger.warning('Falling back to pip.')
+        lang_base.setup_cmd(
+            prefix,
+            (
+                'python',
+                '-mpip',
+                'install',
+                '.',
+                *additional_dependencies,
+            ),
+        )
