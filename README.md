@@ -1,7 +1,6 @@
-[![build status](https://github.com/pre-commit/pre-commit/actions/workflows/main.yml/badge.svg)](https://github.com/pre-commit/pre-commit/actions/workflows/main.yml)
-[![pre-commit.ci status](https://results.pre-commit.ci/badge/github/pre-commit/pre-commit/main.svg)](https://results.pre-commit.ci/latest/github/pre-commit/pre-commit/main)
+## pre-commit-uv
 
-## pre-commit
+*Note:* This is a minor fork of the upstream pre-commit project. It is published on pypi as `pre-commit-uv`.
 
 A framework for managing and maintaining multi-language pre-commit hooks.
 
