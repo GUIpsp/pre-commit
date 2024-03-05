@@ -2,7 +2,7 @@ name: main
 
 on:
   push:
-    branches: [main, test-me-*, uv-support]
+    branches: [main, test-me-*, uv-support, tip]
     tags: '*'
   pull_request:
 
